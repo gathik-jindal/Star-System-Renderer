@@ -2,11 +2,14 @@ import { loadPLY } from './PLYLoader.js';
 import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './shaders.js';
 import { StarSystem } from './StarSystem.js';
 
+const { mat4 } = window;
+
 /**
  * Initializes the WebGL context, shaders, and program.
  * @returns {object} An object containing gl, the program, and shader locations.
  */
 function initGL() {
+    mat4.create(); // Ensure mat4 is loaded
     const canvas = document.getElementById('star-system-canvas');
     const gl = canvas.getContext('webgl');
     if (!gl) {
@@ -33,7 +36,7 @@ function initGL() {
     // Enable the depth test (renders objects in front correctly)
     gl.enable(gl.DEPTH_TEST);
     // Clear the canvas to a dark color (a very dark grey)
-    gl.clearColor(0.1, 0.1, 0.1, 1.0);
+    gl.clearColor(0.1, 0.1, 0.3, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     console.log('WebGL and shaders initialized successfully!');
@@ -97,6 +100,7 @@ async function main() {
         const starSystem = new StarSystem(gl, programInfo, models);
 
         // Start the render loop!
+        console.log("Starting render loop...");
         starSystem.start();
 
     } catch (error) {

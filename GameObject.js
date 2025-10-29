@@ -1,4 +1,4 @@
-let mat4;
+const { mat4 } = window;
 
 export class GameObject {
     /**
@@ -10,7 +10,6 @@ export class GameObject {
      */
     constructor(gl, programInfo, model, color) {
         this.gl = gl;
-        if (!mat4) mat4 = window.glMatrix.mat4;
         this.programInfo = programInfo;
         this.color = color;
         this.indicesCount = model.indices.length;

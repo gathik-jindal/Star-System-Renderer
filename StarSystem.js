@@ -1,7 +1,6 @@
 import { GameObject } from './GameObject.js';
 
-// Destructure modules from the global glMatrix object
-let mat4, vec3;
+const { mat4, vec3 } = window;
 
 export class StarSystem {
     /**
@@ -12,8 +11,7 @@ export class StarSystem {
     constructor(gl, programInfo, models) {
         this.gl = gl;
         if (!mat4) {
-            mat4 = window.glMatrix.mat4;
-            vec3 = window.glMatrix.vec3;
+
         }
         this.programInfo = programInfo;
         this.models = models;
@@ -39,6 +37,19 @@ export class StarSystem {
     _setupScene() {
         const gl = this.gl;
         const info = this.programInfo;
+
+        const testTriangleModel = {
+            positions: new Float32Array([
+                0.0, 1.0, 0.0, // Top vertex
+                -1.0, -1.0, 0.0, // Bottom-left vertex
+                1.0, -1.0, 0.0  // Bottom-right vertex
+            ]),
+            indices: new Uint16Array([
+                0, 1, 2 // One triangle
+            ]),
+            isTest: true
+        };
+        const testObject = new GameObject(gl, info, testTriangleModel, [1, 0, 0, 1]);
 
         // --- Create the Star ---
         // The star is at the origin and stationary 
@@ -66,6 +77,7 @@ export class StarSystem {
         mat4.rotateX(planet3.modelMatrix, planet3.modelMatrix, Math.PI / 2); // Rotate torus to be flat
 
         this.planets.push(planet1, planet2, planet3);
+        // this.planets.push(testObject); // Add test triangle to planets for now
 
         // TODO: Create axis objects 
         // We will add these later.
@@ -97,6 +109,7 @@ export class StarSystem {
         this._update(deltaTime);
 
         // 2. Draw scene
+        // console.log("Drawing frame");
         this._draw();
     }
 
@@ -108,6 +121,10 @@ export class StarSystem {
         // We'll add planet revolution logic here later.
         // For now, let's just make the star spin
         mat4.rotateY(this.star.modelMatrix, this.star.modelMatrix, deltaTime * 0.2);
+
+        for (const planet in this.planets) {
+            mat4.rotateY(this.planets[planet].modelMatrix, this.planets[planet].modelMatrix, deltaTime * 0.5);
+        }
     }
 
     /**
