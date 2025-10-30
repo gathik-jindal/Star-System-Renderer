@@ -92,13 +92,15 @@ async function main() {
             icosphereModel,
             monkeyModel,
             sphereModel,
-            torusModel
+            torusModel,
+            cylinderModel
         ] = await Promise.all([
             loadPLY('./Objects/cone.ply'),
             loadPLY('./Objects/icosphere.ply'),
             loadPLY('./Objects/monkey.ply'),
             loadPLY('./Objects/sphere.ply'),
-            loadPLY('./Objects/torus.ply')
+            loadPLY('./Objects/torus.ply'),
+            loadPLY('./Objects/cylinder.ply')
         ]);
 
         console.log('All models loaded successfully!');

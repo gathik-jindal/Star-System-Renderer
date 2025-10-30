@@ -79,8 +79,47 @@ export class StarSystem {
         this.planets.push(planet1, planet2, planet3);
         // this.planets.push(testObject); // Add test triangle to planets for now
 
-        // TODO: Create axis objects 
-        // We will add these later.
+        const axisLength = 5.0;  // How long the axis lines are
+        const axisRadius = 0.05; // How thick the lines are
+        const coneRadius = 0.2;  // Size of the arrowhead
+        const coneHeight = 0.4;  // Size of the arrowhead
+
+        // We'll assume the cone/cylinder models are 1 unit high along the +Y axis
+        // and have their base at (0,0,0).
+
+        // --- Y-Axis (Green) ---
+        const yAxisCyl = new GameObject(gl, info, this.models.cylinder, [0, 1, 0, 1]);
+        mat4.scale(yAxisCyl.modelMatrix, yAxisCyl.modelMatrix, [axisRadius, axisLength, axisRadius]);
+
+        const yAxisCone = new GameObject(gl, info, this.models.cone, [0, 1, 0, 1]);
+        mat4.scale(yAxisCone.modelMatrix, yAxisCone.modelMatrix, [coneRadius, coneHeight, coneRadius]);
+        mat4.translate(yAxisCone.modelMatrix, yAxisCone.modelMatrix, [0, axisLength, 0]); // Move to end of cylinder
+
+        // --- X-Axis (Red) ---
+        const xAxisCyl = new GameObject(gl, info, this.models.cylinder, [1, 0, 0, 1]);
+        mat4.scale(xAxisCyl.modelMatrix, xAxisCyl.modelMatrix, [axisRadius, axisLength, axisRadius]);
+        mat4.rotateZ(xAxisCyl.modelMatrix, xAxisCyl.modelMatrix, -Math.PI / 2); // Rotate Y-axis to +X axis
+
+        const xAxisCone = new GameObject(gl, info, this.models.cone, [1, 0, 0, 1]);
+        mat4.scale(xAxisCone.modelMatrix, xAxisCone.modelMatrix, [coneRadius, coneHeight, coneRadius]);
+        mat4.rotateZ(xAxisCone.modelMatrix, xAxisCone.modelMatrix, -Math.PI / 2);
+        mat4.translate(xAxisCone.modelMatrix, xAxisCone.modelMatrix, [axisLength, 0, 0]);
+
+        // --- Z-Axis (Blue) ---
+        const zAxisCyl = new GameObject(gl, info, this.models.cylinder, [0, 0, 1, 1]);
+        mat4.scale(zAxisCyl.modelMatrix, zAxisCyl.modelMatrix, [axisRadius, axisLength, axisRadius]);
+        mat4.rotateX(zAxisCyl.modelMatrix, zAxisCyl.modelMatrix, Math.PI / 2); // Rotate Y-axis to +Z axis
+
+        const zAxisCone = new GameObject(gl, info, this.models.cone, [0, 0, 1, 1]);
+        mat4.scale(zAxisCone.modelMatrix, zAxisCone.modelMatrix, [coneRadius, coneHeight, coneRadius]);
+        mat4.rotateX(zAxisCone.modelMatrix, zAxisCone.modelMatrix, Math.PI / 2);
+        mat4.translate(zAxisCone.modelMatrix, zAxisCone.modelMatrix, [0, 0, axisLength]);
+
+        this.axes.push(
+            yAxisCyl, yAxisCone,
+            xAxisCyl, xAxisCone,
+            zAxisCyl, zAxisCone
+        );
     }
 
     /**
@@ -177,6 +216,8 @@ export class StarSystem {
             planet.draw();
         }
 
-        // TODO: Draw axes
+        for (const axisPart of this.axes) {
+            axisPart.draw();
+        }
     }
 }
