@@ -17,6 +17,23 @@ function initGL() {
         return null;
     }
 
+    // --- NEW CODE TO FIX PIXELATION ---
+    // 1. Get the size the browser is DISPLAYING the canvas (set by CSS).
+    const displayWidth = canvas.clientWidth;
+    const displayHeight = canvas.clientHeight;
+
+    // 2. Check if the canvas's internal drawing buffer size is different.
+    if (canvas.width !== displayWidth ||
+        canvas.height !== displayHeight) {
+
+        // 3. Make the drawing buffer size match the display size.
+        // This stops the browser from stretching a tiny 300x150 image.
+        canvas.width = displayWidth;
+        canvas.height = displayHeight;
+    }
+    // --- END NEW CODE ---
+
+
     const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
     if (!vertexShader || !fragmentShader) {
@@ -31,7 +48,7 @@ function initGL() {
     gl.useProgram(program);
 
     // --- Global WebGL Settings ---
-    // Set the viewport to match the canvas size
+    // Set the viewport to match the canvas size (which is now correct)
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     // Enable the depth test (renders objects in front correctly)
     gl.enable(gl.DEPTH_TEST);
