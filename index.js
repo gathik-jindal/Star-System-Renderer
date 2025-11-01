@@ -53,8 +53,13 @@ function initGL() {
     // Enable the depth test (renders objects in front correctly)
     gl.enable(gl.DEPTH_TEST);
     // Clear the canvas to a dark color (a very dark grey)
-    gl.clearColor(0.1, 0.1, 0.3, 1.0);
+    gl.clearColor(0.1, 0.1, 0.1, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // We can set this once since the light never moves.
+    // The star (our light) is at the world origin [0, 0, 0].
+    const lightPositionLocation = gl.getUniformLocation(program, 'u_LightPosition');
+    gl.uniform3fv(lightPositionLocation, [0.0, 0.0, 0.0]);
 
     console.log('WebGL and shaders initialized successfully!');
 
@@ -64,12 +69,15 @@ function initGL() {
         program: program,
         attribLocations: {
             position: gl.getAttribLocation(program, 'a_Position'),
+            normal: gl.getAttribLocation(program, 'a_Normal'),
         },
         uniformLocations: {
             projectionMatrix: gl.getUniformLocation(program, 'u_ProjectionMatrix'),
             viewMatrix: gl.getUniformLocation(program, 'u_ViewMatrix'),
             modelMatrix: gl.getUniformLocation(program, 'u_ModelMatrix'),
             color: gl.getUniformLocation(program, 'u_Color'),
+            lightPosition: lightPositionLocation,
+            isEmissive: gl.getUniformLocation(program, 'u_isEmissive'),
         },
     };
 
@@ -111,12 +119,69 @@ async function main() {
             icosphere: icosphereModel,
             monkey: monkeyModel,
             sphere: sphereModel,
-            torus: torusModel
+            torus: torusModel,
+            cylinder: cylinderModel
         };
 
         // --- 3. Build Scene & Start ---
         // Create the main app instance
         const starSystem = new StarSystem(gl, programInfo, models);
+
+        // --- 4. HOOK UP UI BUTTONS (NEW) ---
+        const btn3D = document.getElementById('3d-view');
+        const btnTop = document.getElementById('top-view');
+        const canvas = document.getElementById('star-system-canvas');
+
+        // Set initial active state
+        btn3D.classList.add('active');
+
+        // -- 4.5 HOOK UP EVENT LISTENERS ---
+        let mode = '3D';
+        btn3D.addEventListener('click', () => {
+            starSystem.setCameraMode('3D');
+            mode = '3D';
+            btn3D.classList.add('active');
+            btnTop.classList.remove('active');
+        });
+
+        btnTop.addEventListener('click', () => {
+            starSystem.setCameraMode('TOP');
+            mode = 'TOP';
+            btnTop.classList.add('active');
+            btn3D.classList.remove('active');
+        });
+
+        let trackMouseMovement = false;
+        canvas.addEventListener('click', async () => {
+            if (mode === '3D') {
+                trackMouseMovement = !trackMouseMovement;
+                await canvas.requestPointerLock();
+            }
+        });
+
+        canvas.addEventListener('mousemove', (event) => {
+            if (document.pointerLockElement === canvas && trackMouseMovement) {
+                const movementX = event.movementX || 0;
+                const movementY = event.movementY || 0;
+                starSystem.handleMouseMovement(movementX, movementY);
+            }
+        });
+
+        canvas.addEventListener('wheel', (event) => {
+            if (mode === '3D' && trackMouseMovement) {
+                // Stop the browser window from scrolling
+                event.preventDefault();
+
+                // Pass the event to the StarSystem
+                starSystem.handleMouseScroll(event);
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement !== canvas) {
+                trackMouseMovement = false;
+            }
+        });
 
         // Start the render loop!
         console.log("Starting render loop...");

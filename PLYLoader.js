@@ -12,6 +12,7 @@ function parsePLY(plyText) {
     const lines = plyText.split('\n');
     const positions = [];
     const indices = [];
+    const normals = [];
 
     let vertexCount = 0;
     let faceCount = 0;
@@ -51,6 +52,19 @@ function parsePLY(plyText) {
                 positions.push(parseFloat(parts[1])); // y
                 positions.push(parseFloat(parts[2])); // z
                 verticesRead++;
+
+                // Assuming normals (nx, ny, nz) are properties 3, 4, 5
+                if (parts.length >= 6) {
+                    normals.push(parseFloat(parts[3])); // nx
+                    normals.push(parseFloat(parts[4])); // ny
+                    normals.push(parseFloat(parts[5])); // nz
+                } else {
+                    // No normal data found. Push a default (0,0,0).
+                    // This will look bad, but won't crash.
+                    normals.push(0.0);
+                    normals.push(0.0);
+                    normals.push(0.0);
+                }
 
                 if (verticesRead === vertexCount) {
                     currentState = STATE.READING_FACES;
@@ -92,13 +106,14 @@ function parsePLY(plyText) {
         }
     }
 
-    console.log(`PLY Parser Results (${vertexCount}v, ${faceCount}f):
-  - Vertices read: ${verticesRead} (Positions: ${positions.length})
-  - Faces read:   ${facesRead} (Indices: ${indices.length})`);
+    // console.log(`PLY Parser Results (${vertexCount}v, ${faceCount}f):
+    //     - Vertices read: ${ verticesRead } (Positions: ${ positions.length })
+    //   - Faces read:   ${ facesRead } (Indices: ${ indices.length })`);
 
     return {
         positions: new Float32Array(positions),
         indices: new Uint16Array(indices),
+        normals: new Float32Array(normals),
     };
 }
 
@@ -113,15 +128,15 @@ function parsePLY(plyText) {
  */
 export async function loadPLY(url) {
     try {
-        console.log(`Loading PLY: ${url}`);
+        console.log(`Loading PLY: ${url} `);
         const response = await fetch(url);
         if (!response.ok) {
-            throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+            throw new Error(`Failed to fetch ${url}: ${response.statusText} `);
         }
         const plyText = await response.text();
         return parsePLY(plyText);
     } catch (error) {
-        console.error(`Error loading PLY file ${url}:`, error);
+        console.error(`Error loading PLY file ${url}: `, error);
         throw error;
     }
 }

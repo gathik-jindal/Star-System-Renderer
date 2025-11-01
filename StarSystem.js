@@ -25,10 +25,28 @@ export class StarSystem {
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
 
+        // Camera mode
+        this.cameraMode = '3D';
+        this.cameraYaw = -0.5; // Initial side-to-side angle
+        this.cameraPitch = 1.0;  // Initial up-and-down angle
+        this.cameraRadius = 25;  // Distance from the origin
+        this.minCameraRadius = 5.0;  // Don't let user zoom inside the star
+        this.maxCameraRadius = 100.0; // Don't let user zoom out too far
+        this.zoomSensitivity = 0.1;  // Adjusts zoom speed
+
         // Timekeeping for animation
         this.lastTime = 0;
 
         this._setupScene();
+    }
+
+    /**
+     * Sets the camera mode.
+     * @param {'3D' | 'TOP'} mode - The camera mode to switch to.
+     */
+    setCameraMode(mode) {
+        if (mode === '3D' || mode === 'TOP') this.cameraMode = mode;
+        else console.log("Invalid camera mode:", mode);
     }
 
     /**
@@ -38,26 +56,12 @@ export class StarSystem {
         const gl = this.gl;
         const info = this.programInfo;
 
-        const testTriangleModel = {
-            positions: new Float32Array([
-                0.0, 1.0, 0.0, // Top vertex
-                -1.0, -1.0, 0.0, // Bottom-left vertex
-                1.0, -1.0, 0.0  // Bottom-right vertex
-            ]),
-            indices: new Uint16Array([
-                0, 1, 2 // One triangle
-            ]),
-            isTest: true
-        };
-        const testObject = new GameObject(gl, info, testTriangleModel, [1, 0, 0, 1]);
-
         // --- Create the Star ---
         // The star is at the origin and stationary 
         // Color: Yellow
-        this.star = new GameObject(gl, info, this.models.sphere, [1, 1, 0, 1]);
+        this.star = new GameObject(gl, info, this.models.sphere, [1, 1, 0, 1], true); // Emissive = true
         // We can scale the star to be larger
         mat4.scale(this.star.modelMatrix, this.star.modelMatrix, vec3.fromValues(2.0, 2.0, 2.0));
-
 
         // --- Create Planets (at least 3) ---
         // We'll use two regular solids as required 
@@ -69,15 +73,39 @@ export class StarSystem {
 
         // Planet 2: Monkey (a "regular solid" for this assignment)
         const planet2 = new GameObject(gl, info, this.models.monkey, [0.4, 0.4, 1, 1]); // Blue
-        mat4.translate(planet2.modelMatrix, planet2.modelMatrix, vec3.fromValues(-8, 0, 0)); // Orbit radius 8
+        mat4.translate(planet2.modelMatrix, planet2.modelMatrix, vec3.fromValues(8, 0, 0)); // Orbit radius 8
 
         // Planet 3: Torus (another "regular solid")
         const planet3 = new GameObject(gl, info, this.models.torus, [0.7, 0.3, 0.7, 1]); // Purple
         mat4.translate(planet3.modelMatrix, planet3.modelMatrix, vec3.fromValues(11, 0, 0)); // Orbit radius 11
-        mat4.rotateX(planet3.modelMatrix, planet3.modelMatrix, Math.PI / 2); // Rotate torus to be flat
+        // mat4.rotateX(planet3.modelMatrix, planet3.modelMatrix, Math.PI / 2); // Rotate torus to be flat
 
-        this.planets.push(planet1, planet2, planet3);
-        // this.planets.push(testObject); // Add test triangle to planets for now
+        this.planets.push(
+            {
+                planet: planet1,
+                orbit: 5,
+                orbitSpeed: 1,
+                rotationSpeed: 3,
+                totalOrbitAngle: 0,
+                totalRotationAngle: 0
+            },
+            {
+                planet: planet2,
+                orbit: 8,
+                orbitSpeed: 1.5,
+                rotationSpeed: 4,
+                totalOrbitAngle: 0,
+                totalRotationAngle: 0
+            },
+            {
+                planet: planet3,
+                orbit: 11,
+                orbitSpeed: 2,
+                rotationSpeed: 5,
+                totalOrbitAngle: 0,
+                totalRotationAngle: 0
+            }
+        );
 
         const axisLength = 5.0;  // How long the axis lines are
         const axisRadius = 0.05; // How thick the lines are
@@ -123,6 +151,54 @@ export class StarSystem {
     }
 
     /**
+     * Handles mouse movement for camera control.
+     * @param {number} deltaX - Change in mouse X position.
+     * @param {number} deltaY - Change in mouse Y position.
+     */
+    handleMouseMovement(deltaX, deltaY) {
+        // This method is only active in 3D mode
+        if (this.cameraMode !== '3D') {
+            return;
+        }
+
+        const sensitivity = 0.01; // Adjust this to change mouse speed
+
+        // Update the yaw and pitch
+        this.cameraYaw -= deltaX * sensitivity;
+        this.cameraPitch -= deltaY * sensitivity;
+
+        // --- Clamp the pitch ---
+        const minPitch = 0.1;
+        const maxPitch = Math.PI / 2 - 0.1;
+        this.cameraPitch = Math.max(minPitch, Math.min(maxPitch, this.cameraPitch));
+    }
+
+    /**
+     * Handles mouse scroll for camera zoom.
+     * @param {WheelEvent} event - The mouse wheel event.
+     */
+    handleMouseScroll(event) {
+        // This method is only active in 3D mode
+        if (this.cameraMode !== '3D') {
+            return;
+        }
+
+        // event.deltaY is positive when scrolling down (zoom out)
+        // and negative when scrolling up (zoom in)
+        const delta = event.deltaY * this.zoomSensitivity;
+
+        // Add the delta to the camera radius
+        this.cameraRadius += delta;
+
+        // --- Clamp the radius ---
+        // Ensure the new radius is within our min/max bounds
+        this.cameraRadius = Math.max(
+            this.minCameraRadius,
+            Math.min(this.maxCameraRadius, this.cameraRadius)
+        );
+    }
+
+    /**
      * Starts the continuous render loop.
      */
     start() {
@@ -161,8 +237,23 @@ export class StarSystem {
         // For now, let's just make the star spin
         mat4.rotateY(this.star.modelMatrix, this.star.modelMatrix, deltaTime * 0.2);
 
-        for (const planet in this.planets) {
-            mat4.rotateY(this.planets[planet].modelMatrix, this.planets[planet].modelMatrix, deltaTime * 0.5);
+        for (const planetProp of this.planets) {
+            // --- 1. Update Total Angles ---.
+            planetProp.totalOrbitAngle += planetProp.orbitSpeed * deltaTime * 0.5;
+            planetProp.totalRotationAngle += planetProp.rotationSpeed * deltaTime;
+
+            // Get the planet's matrix
+            const M = planetProp.planet.modelMatrix;
+
+            // --- 2. Reset the Matrix ---
+            mat4.identity(M);
+
+            // --- 3. Apply Absolute Revolution (Orbit) ---
+            mat4.rotateY(M, M, planetProp.totalOrbitAngle);
+            mat4.translate(M, M, [planetProp.orbit, 0, 0]);
+
+            // --- 4. Apply Local Rotation (Spin) ---
+            mat4.rotateY(M, M, planetProp.totalRotationAngle);
         }
     }
 
@@ -174,7 +265,6 @@ export class StarSystem {
         const info = this.programInfo;
 
         // --- Clear the canvas ---
-        // We clear to the color set in initGL()
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         // --- Set up the Camera (Projection and View) ---
@@ -183,16 +273,33 @@ export class StarSystem {
         const fieldOfView = 45 * Math.PI / 180; // 45 degrees FOV
         const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
         const zNear = 0.1;
-        const zFar = 100.0;
+        const zFar = 1000.0;
         mat4.perspective(this.projectionMatrix, fieldOfView, aspect, zNear, zFar);
 
         // 2. View Matrix (Camera Position) - "3D View"
-        // This is where the camera is. We'll place it at (0, 10, 20)
-        // and make it look at the origin (0, 0, 0) .
-        const cameraPosition = vec3.fromValues(0, 10, 20);
-        const lookAtTarget = vec3.fromValues(0, 0, 0);
-        const cameraUp = vec3.fromValues(0, 1, 0); // Y-axis is "up"
-        mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
+        if (this.cameraMode === '3D') {
+            // --- "3D View" ---
+            // Calculate camera position using spherical coordinates (yaw, pitch, radius)
+
+            // X position = r * sin(pitch) * sin(yaw)
+            const x = this.cameraRadius * Math.sin(this.cameraPitch) * Math.sin(this.cameraYaw);
+            // Y position = r * cos(pitch)
+            const y = this.cameraRadius * Math.cos(this.cameraPitch);
+            // Z position = r * sin(pitch) * cos(yaw)
+            const z = this.cameraRadius * Math.sin(this.cameraPitch) * Math.cos(this.cameraYaw);
+
+            const cameraPosition = vec3.fromValues(x, y, z);
+            const lookAtTarget = vec3.fromValues(0, 0, 0); // Always look at the origin
+            const cameraUp = vec3.fromValues(0, 1, 0); // Y-axis is always "up"
+            mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
+        } else {
+            // --- "Top View" ---
+            // Looking straight down the Y-axis from a distance
+            const cameraPosition = vec3.fromValues(0, 25, 0);
+            const lookAtTarget = vec3.fromValues(0, 0, 0);
+            const cameraUp = vec3.fromValues(0, 0, -1);      // Makes the +Z axis point "down" the screen
+            mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
+        }
 
         // --- Tell WebGL to use our shader program ---
         gl.useProgram(info.program);
@@ -212,12 +319,12 @@ export class StarSystem {
         // --- Draw all objects ---
         this.star.draw();
 
-        for (const planet of this.planets) {
-            planet.draw();
+        for (const planetProp of this.planets) {
+            planetProp.planet.draw();
         }
 
-        for (const axisPart of this.axes) {
-            axisPart.draw();
-        }
+        // for (const axisPart of this.axes) {
+        //     axisPart.draw();
+        // }
     }
 }

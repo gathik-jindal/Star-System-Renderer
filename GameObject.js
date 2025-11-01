@@ -8,18 +8,18 @@ export class GameObject {
      * @param {object} model - Parsed model data { positions, indices }.
      * @param {number[]} color - The RGBA color for this object (e.g., [1, 0, 0, 1] for red).
      */
-    constructor(gl, programInfo, model, color) {
+    constructor(gl, programInfo, model, color, isEmissive = false) {
         this.gl = gl;
         this.programInfo = programInfo;
         this.color = color;
         this.indicesCount = model.indices.length;
-
-        // Create and store the model matrix for this object.
-        // It starts as an "identity" matrix (no transformation).
         this.modelMatrix = mat4.create();
-
-        // Create and store the WebGL buffers.
         this.buffers = this._createBuffers(model);
+        // A check to see if normals were loaded
+        if (!model.normals || model.normals.length === 0) {
+            console.warn("Model is missing normals! Lighting will be incorrect.");
+        }
+        this.isEmissive = isEmissive;
     }
 
     /**
@@ -35,6 +35,12 @@ export class GameObject {
         // Pass the vertex data to the buffer
         gl.bufferData(gl.ARRAY_BUFFER, model.positions, gl.STATIC_DRAW);
 
+        // --- Create Normal Buffer Object (NBO) ---
+        const normalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+        // Use model.normals, which we added in PLYLoader
+        gl.bufferData(gl.ARRAY_BUFFER, model.normals, gl.STATIC_DRAW);
+
         // --- Create Index Buffer Object (IBO) ---
         const indexBuffer = gl.createBuffer();
         // Bind the buffer as the "current" one
@@ -45,6 +51,7 @@ export class GameObject {
         return {
             position: positionBuffer,
             indices: indexBuffer,
+            normal: normalBuffer,
         };
     }
 
@@ -67,6 +74,17 @@ export class GameObject {
         );
         gl.enableVertexAttribArray(info.attribLocations.position);
 
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.normal);
+        gl.vertexAttribPointer(
+            info.attribLocations.normal, // The new attribute location
+            3,         // 3 components per normal (nx, ny, nz)
+            gl.FLOAT,  // Type
+            false,     // Don't normalize (they should be already)
+            0,         // Stride
+            0          // Offset
+        );
+        gl.enableVertexAttribArray(info.attribLocations.normal);
+
         // --- 2. Set up index buffer ---
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.indices);
 
@@ -83,6 +101,12 @@ export class GameObject {
         gl.uniform4fv(
             info.uniformLocations.color,
             this.color
+        );
+
+        // Tell the shader if this object is the star
+        gl.uniform1i(
+            info.uniformLocations.isEmissive,
+            this.isEmissive ? 1 : 0 // 1 for true, 0 for false
         );
 
         // --- 4. Draw the object ---
