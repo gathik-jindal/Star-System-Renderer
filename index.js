@@ -1,8 +1,11 @@
 import { loadPLY } from './PLYLoader.js';
-import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './shaders.js';
+import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './Shaders.js';
 import { StarSystem } from './StarSystem.js';
-import { createPlanetCard, hexToRgb } from './planetSelection.js';
+import { createPlanetCard, hexToRgb } from './PlanetSelection.js';
 import { GizmoRenderer } from './gizmoRenderer.js';
+import { ObjectPicker } from './ObjectPicker.js';
+
+export const CLEAR_COLOR = [0.1, 0.1, 0.1, 1];
 
 /**
  * Initializes the MAIN WebGL context, shaders, and program.
@@ -37,7 +40,7 @@ function initGL() {
     // --- Global WebGL Settings ---
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.enable(gl.DEPTH_TEST);
-    gl.clearColor(0.1, 0.1, 0.1, 1.0);
+    gl.clearColor(...CLEAR_COLOR);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     const lightPositionLocation = gl.getUniformLocation(program, 'u_LightPosition');
@@ -141,14 +144,16 @@ async function main() {
             monkeyModel,
             sphereModel,
             torusModel,
-            cylinderModel
+            cylinderModel,
+            cubeModel,
         ] = await Promise.all([
             loadPLY('./Objects/cone.ply'),
             loadPLY('./Objects/icosphere.ply'),
             loadPLY('./Objects/monkey.ply'),
             loadPLY('./Objects/sphere.ply'),
             loadPLY('./Objects/torus.ply'),
-            loadPLY('./Objects/cylinder.ply')
+            loadPLY('./Objects/cylinder.ply'),
+            loadPLY('./Objects/cube.ply'),
         ]);
 
         console.log('All models loaded successfully!');
@@ -159,12 +164,14 @@ async function main() {
             monkey: monkeyModel,
             sphere: sphereModel,
             torus: torusModel,
-            cylinder: cylinderModel
+            cylinder: cylinderModel,
+            cube: cubeModel,
         };
 
         // --- 3. Build Scene & Renderers ---
         const starSystem = new StarSystem(gl, programInfo, models);
         const gizmoRenderer = new GizmoRenderer(gizmoGL.gl, gizmoGL.programInfo, models);
+        const objectPicker = new ObjectPicker(gl);
 
 
         // --- 4. HOOK UP UI BUTTONS ---
@@ -188,10 +195,40 @@ async function main() {
         });
 
         // --- 4.5 HOOK UP EVENT LISTENERS ---
+        canvas.addEventListener('click', (event) => {
+            if (starSystem.cameraMode !== 'TOP') {
+                return; // Do nothing if not in top view
+            }
+
+            // 2. Get canvas-relative mouse coords
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top; // Y from top-left
+
+            // 3. Render the picking scene
+            objectPicker.render(
+                programInfo,
+                starSystem.viewMatrix,
+                starSystem.projectionMatrix,
+                starSystem.getPickableObjects()
+            );
+
+            // 4. Pick the ID
+            const id = objectPicker.pick(x, y);
+
+            // 5. Set the selected object in StarSystem
+            if (id === 0) { // 0 is the clear color (black)
+                starSystem.setSelected(null);
+            } else {
+                const selected = starSystem.getPickableObjects()[id - 1];
+                starSystem.setSelected(selected);
+            }
+        });
+
         let trackMouseMovement = false;
         canvas.addEventListener('click', async () => {
             if (mode === '3D') {
-                trackMouseMovement = !trackMouseMovement;
+                trackMouseMovement = true;
                 await canvas.requestPointerLock();
             }
         });
@@ -220,6 +257,7 @@ async function main() {
             { name: "Torus", model: models.torus, color: 0xaa00ff },
             { name: "Cone", model: models.cone, color: 0xff0000 },
             { name: "Cylinder", model: models.cylinder, color: 0xffff00 },
+            { name: "Cube", model: models.cube, color: 0xffffff },
         ];
         for (const cardData of modelCards) {
             const onCardClick = () => {

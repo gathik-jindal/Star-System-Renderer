@@ -1,4 +1,4 @@
-import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './shaders.js';
+import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './Shaders.js';
 import { GameObject } from './GameObject.js';
 
 const { mat4 } = window; // Make sure gl-matrix is loaded
@@ -141,7 +141,7 @@ export function createPlanetCard(cardData, onClickCallback) { // <-- PARAMETERS 
         }
 
         // --- Update (Spin) ---
-        mat4.rotateY(planetMesh.modelMatrix, planetMesh.modelMatrix, deltaTime * 0.4);
+        mat4.rotateY(planetMesh.modelMatrix, planetMesh.modelMatrix, deltaTime * 1);
 
         // --- Draw ---
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

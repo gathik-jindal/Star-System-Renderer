@@ -20,6 +20,10 @@ export class StarSystem {
         this.star = null;
         this.gizmo = null;
 
+        this.selectedObject = null;
+        this.highlightColor = [1.0, 1.0, 1.0, 1.0]; // White
+        this.originalColor = {}; // Store original color
+
         // Camera matrices
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
@@ -46,6 +50,11 @@ export class StarSystem {
     setCameraMode(mode) {
         if (mode === '3D' || mode === 'TOP') this.cameraMode = mode;
         else console.log("Invalid camera mode:", mode);
+
+        // Clear selection when switching modes
+        if (this.cameraMode === '3D') {
+            this.setSelected(null);
+        }
     }
 
     /**
@@ -67,6 +76,42 @@ export class StarSystem {
             totalOrbitAngle: 0,
             totalRotationAngle: 0
         });
+    }
+
+    /**
+     * Returns a flat array of all pickable GameObject instances.
+     */
+    getPickableObjects() {
+        // We only want to pick planets, not the star.
+        return this.planets.map(p => p.planet);
+    }
+
+    /**
+     * Sets the currently selected object and handles highlight color.
+     * @param {GameObject | null} object - The object to select, or null to clear.
+     */
+    setSelected(object) {
+        // 1. If there's an old selection, restore its color
+        if (this.selectedObject) {
+            // Find the *original* color we stored.
+            // We use a Map to store { object: originalColor }
+            const oldColor = this.originalColor[this.selectedObject.id]; // We need an ID...
+
+            // Let's just store the color on the object itself before changing it.
+            this.selectedObject.color = this.selectedObject.originalColor;
+            delete this.selectedObject.originalColor;
+        }
+
+        // 2. Set the new selected object
+        this.selectedObject = object;
+
+        // 3. If it's a new, valid object, store its color and set highlight
+        if (this.selectedObject) {
+            // Store the original color *on the object*
+            this.selectedObject.originalColor = [...this.selectedObject.color];
+            // Set the highlight color
+            this.selectedObject.color = this.highlightColor;
+        }
     }
 
     /**
