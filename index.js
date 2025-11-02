@@ -1,11 +1,11 @@
 import { loadPLY } from './PLYLoader.js';
 import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './shaders.js';
 import { StarSystem } from './StarSystem.js';
-
-const { mat4 } = window;
+import { createPlanetCard, hexToRgb } from './planetSelection.js';
+import { GizmoRenderer } from './gizmoRenderer.js';
 
 /**
- * Initializes the WebGL context, shaders, and program.
+ * Initializes the MAIN WebGL context, shaders, and program.
  * @returns {object} An object containing gl, the program, and shader locations.
  */
 function initGL() {
@@ -17,54 +17,34 @@ function initGL() {
         return null;
     }
 
-    // --- NEW CODE TO FIX PIXELATION ---
-    // 1. Get the size the browser is DISPLAYING the canvas (set by CSS).
+    // --- Fix pixelation ---
     const displayWidth = canvas.clientWidth;
     const displayHeight = canvas.clientHeight;
-
-    // 2. Check if the canvas's internal drawing buffer size is different.
-    if (canvas.width !== displayWidth ||
-        canvas.height !== displayHeight) {
-
-        // 3. Make the drawing buffer size match the display size.
-        // This stops the browser from stretching a tiny 300x150 image.
+    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
         canvas.width = displayWidth;
         canvas.height = displayHeight;
     }
-    // --- END NEW CODE ---
-
 
     const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-    if (!vertexShader || !fragmentShader) {
-        return null;
-    }
+    if (!vertexShader || !fragmentShader) return null;
 
     const program = createShaderProgram(gl, vertexShader, fragmentShader);
-    if (!program) {
-        return null;
-    }
+    if (!program) return null;
 
     gl.useProgram(program);
 
     // --- Global WebGL Settings ---
-    // Set the viewport to match the canvas size (which is now correct)
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    // Enable the depth test (renders objects in front correctly)
     gl.enable(gl.DEPTH_TEST);
-    // Clear the canvas to a dark color (a very dark grey)
     gl.clearColor(0.1, 0.1, 0.1, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // We can set this once since the light never moves.
-    // The star (our light) is at the world origin [0, 0, 0].
     const lightPositionLocation = gl.getUniformLocation(program, 'u_LightPosition');
     gl.uniform3fv(lightPositionLocation, [0.0, 0.0, 0.0]);
 
-    console.log('WebGL and shaders initialized successfully!');
+    console.log('Main WebGL and shaders initialized successfully!');
 
-    // We'll store program info (attribute and uniform locations)
-    // to avoid looking them up repeatedly.
     const programInfo = {
         program: program,
         attribLocations: {
@@ -84,14 +64,74 @@ function initGL() {
     return { gl, programInfo };
 }
 
+// --- NEW FUNCTION ---
+/**
+ * Initializes the GIZMO WebGL context and program.
+ * @returns {object} An object containing gl, the program, and shader locations.
+ */
+function initGizmoGL() {
+    const canvas = document.getElementById('gizmo-canvas');
+    // --- Use { alpha: true } to allow transparent background ---
+    const gl = canvas.getContext('webgl', { alpha: true });
+    if (!gl) {
+        console.error("WebGL not supported for gizmo!");
+        return null;
+    }
+
+    // --- Match canvas size ---
+    if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+    }
+
+    // --- Re-use the same shaders ---
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    if (!vertexShader || !fragmentShader) return null;
+
+    const program = createShaderProgram(gl, vertexShader, fragmentShader);
+    if (!program) return null;
+
+    gl.useProgram(program);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+    // --- Use the same light position (though gizmo is unlit, this is good practice) ---
+    const lightPositionLocation = gl.getUniformLocation(program, 'u_LightPosition');
+    gl.uniform3fv(lightPositionLocation, [0.0, 0.0, 0.0]);
+
+    console.log('Gizmo WebGL initialized successfully!');
+
+    // --- Use the same layout for programInfo ---
+    const programInfo = {
+        program: program,
+        attribLocations: {
+            position: gl.getAttribLocation(program, 'a_Position'),
+            normal: gl.getAttribLocation(program, 'a_Normal'),
+        },
+        uniformLocations: {
+            projectionMatrix: gl.getUniformLocation(program, 'u_ProjectionMatrix'),
+            viewMatrix: gl.getUniformLocation(program, 'u_ViewMatrix'),
+            modelMatrix: gl.getUniformLocation(program, 'u_ModelMatrix'),
+            color: gl.getUniformLocation(program, 'u_Color'),
+            lightPosition: lightPositionLocation,
+            isEmissive: gl.getUniformLocation(program, 'u_isEmissive'),
+        },
+    };
+
+    return { gl, programInfo };
+}
+
+
 async function main() {
     console.log('Initializing star system...');
 
-    // --- 1. Initialize WebGL and Shaders ---
+    // --- 1. Initialize BOTH WebGL contexts ---
     const { gl, programInfo } = initGL();
-    if (!gl) {
-        return; // Initialization failed
-    }
+    if (!gl) return; // Main init failed
+
+    const gizmoGL = initGizmoGL(); // { gl, programInfo }
+    if (!gizmoGL.gl) return; // Gizmo init failed
+
 
     // --- 2. Load All Models ---
     try {
@@ -113,7 +153,6 @@ async function main() {
 
         console.log('All models loaded successfully!');
 
-        // Store models in a clean object
         const models = {
             cone: coneModel,
             icosphere: icosphereModel,
@@ -123,27 +162,24 @@ async function main() {
             cylinder: cylinderModel
         };
 
-        // --- 3. Build Scene & Start ---
-        // Create the main app instance
+        // --- 3. Build Scene & Renderers ---
         const starSystem = new StarSystem(gl, programInfo, models);
+        const gizmoRenderer = new GizmoRenderer(gizmoGL.gl, gizmoGL.programInfo, models);
 
-        // --- 4. HOOK UP UI BUTTONS (NEW) ---
+
+        // --- 4. HOOK UP UI BUTTONS ---
         const btn3D = document.getElementById('3d-view');
         const btnTop = document.getElementById('top-view');
         const canvas = document.getElementById('star-system-canvas');
-
-        // Set initial active state
         btn3D.classList.add('active');
-
-        // -- 4.5 HOOK UP EVENT LISTENERS ---
         let mode = '3D';
+
         btn3D.addEventListener('click', () => {
             starSystem.setCameraMode('3D');
             mode = '3D';
             btn3D.classList.add('active');
             btnTop.classList.remove('active');
         });
-
         btnTop.addEventListener('click', () => {
             starSystem.setCameraMode('TOP');
             mode = 'TOP';
@@ -151,6 +187,7 @@ async function main() {
             btn3D.classList.remove('active');
         });
 
+        // --- 4.5 HOOK UP EVENT LISTENERS ---
         let trackMouseMovement = false;
         canvas.addEventListener('click', async () => {
             if (mode === '3D') {
@@ -158,7 +195,6 @@ async function main() {
                 await canvas.requestPointerLock();
             }
         });
-
         canvas.addEventListener('mousemove', (event) => {
             if (document.pointerLockElement === canvas && trackMouseMovement) {
                 const movementX = event.movementX || 0;
@@ -166,26 +202,43 @@ async function main() {
                 starSystem.handleMouseMovement(movementX, movementY);
             }
         });
-
         canvas.addEventListener('wheel', (event) => {
-            if (mode === '3D' && trackMouseMovement) {
-                // Stop the browser window from scrolling
-                event.preventDefault();
-
-                // Pass the event to the StarSystem
-                starSystem.handleMouseScroll(event);
-            }
+            event.preventDefault();
+            starSystem.handleMouseScroll(event);
         });
-
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement !== canvas) {
                 trackMouseMovement = false;
             }
         });
 
-        // Start the render loop!
+        // --- 5. CREATE MODEL CARDS ---
+        const modelCards = [
+            { name: "Sphere", model: models.sphere, color: 0x00ff00 },
+            { name: "Icosphere", model: models.icosphere, color: 0x00aaff },
+            { name: "Monkey", model: models.monkey, color: 0xff8800 },
+            { name: "Torus", model: models.torus, color: 0xaa00ff },
+            { name: "Cone", model: models.cone, color: 0xff0000 },
+        ];
+        for (const cardData of modelCards) {
+            const onCardClick = () => {
+                console.log(`Adding ${cardData.name} to the scene!`);
+                const color = hexToRgb(cardData.color);
+                starSystem.addModel(
+                    cardData.model,
+                    [...color, 1.0],
+                    9 + (Math.random() * 10),
+                    0.5 + Math.random(),
+                    1.0 + Math.random() * 4,
+                    false
+                );
+            };
+            createPlanetCard(cardData, onCardClick);
+        }
+
+        // --- Start the render loop! ---
         console.log("Starting render loop...");
-        starSystem.start();
+        starSystem.start(gizmoRenderer);
 
     } catch (error) {
         console.error('Failed to initialize application:', error);

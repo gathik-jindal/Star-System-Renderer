@@ -1,13 +1,13 @@
 export const vertexShaderSource = `
     attribute vec4 a_Position;
-    attribute vec3 a_Normal; // <-- ADDED: The normal vector from the model
+    attribute vec3 a_Normal;
 
     uniform mat4 u_ModelMatrix;
     uniform mat4 u_ViewMatrix;
     uniform mat4 u_ProjectionMatrix;
 
-    varying vec3 v_Normal; // <-- ADDED: Pass normal to fragment shader
-    varying vec3 v_WorldPosition; // <-- ADDED: Pass world pos to fragment shader
+    varying vec3 v_Normal;
+    varying vec3 v_WorldPosition;
 
     void main() {
         gl_Position = u_ProjectionMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;

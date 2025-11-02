@@ -1,5 +1,3 @@
-const { mat4 } = window;
-
 export class GameObject {
     /**
      * Creates a new renderable object.
@@ -57,8 +55,9 @@ export class GameObject {
 
     /**
      * Draws the object to the screen.
+     * @param {mat4 | null} overrideModelMatrix - If provided, this matrix is used instead of the object's internal modelMatrix.
      */
-    draw() {
+    draw(overrideModelMatrix = null) { // <-- PARAMETER ADDED
         const gl = this.gl;
         const info = this.programInfo;
 
@@ -89,12 +88,14 @@ export class GameObject {
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.indices);
 
         // --- 3. Set unique uniforms for this object ---
+        // Use the override matrix if it exists, otherwise use the object's internal one.
+        const matrixToUse = overrideModelMatrix || this.modelMatrix;
 
         // Set the model matrix
         gl.uniformMatrix4fv(
             info.uniformLocations.modelMatrix,
             false, // Don't transpose
-            this.modelMatrix // The object's personal matrix
+            matrixToUse // Use our selected matrix
         );
 
         // Set the color
