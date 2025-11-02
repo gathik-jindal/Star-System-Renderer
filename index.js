@@ -219,6 +219,7 @@ async function main() {
             { name: "Monkey", model: models.monkey, color: 0xff8800 },
             { name: "Torus", model: models.torus, color: 0xaa00ff },
             { name: "Cone", model: models.cone, color: 0xff0000 },
+            { name: "Cylinder", model: models.cylinder, color: 0xffff00 },
         ];
         for (const cardData of modelCards) {
             const onCardClick = () => {

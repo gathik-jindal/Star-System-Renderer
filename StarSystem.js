@@ -26,7 +26,7 @@ export class StarSystem {
 
         // Camera mode
         this.cameraMode = '3D';
-        this.cameraYaw = -0.5; // Initial side-to-side angle
+        this.cameraYaw = Math.PI / 4; // Initial side-to-side angle
         this.cameraPitch = 1.0;  // Initial up-and-down angle
         this.cameraRadius = 25;  // Distance from the origin
         this.minCameraRadius = 5.0;  // Don't let user zoom inside the star
