@@ -76,36 +76,3 @@ python -m http.server
 ```
 
 Open your browser and navigate to http://localhost:8000.
-
------
-
-## 📝 Report Q\&A (Draft)
-
-Here are draft answers to the questions from the assignment PDF, based on the provided code.
-
-**1. To what extent were you able to reuse code from Assignment 1?**
-
-> (This is a guess, as I haven't seen A1)
-> Very little code was reused. Assignment 1 focused on 2D rendering, so while the concepts of buffers and shaders are similar, the implementation for 3D is substantially different. The main reusable components were the basic WebGL context initialization and the shader compilation functions, which have now been modularized into `ShaderUtil.js`.
-
-**2. What were the primary changes in the use of WebGL in moving from 2D to 3D?**
-
-  * **Matrices:** We moved from 2D (x, y) coordinates to 3D (x, y, z) coordinates. This required three separate matrices (Model, View, Projection) instead of a single 2D transformation matrix.
-  * **Depth:** We enabled the `DEPTH_TEST` (`gl.enable(gl.DEPTH_TEST)`) and must clear the `DEPTH_BUFFER_BIT` each frame. This is crucial for rendering 3D objects in the correct order so objects in front occlude objects behind.
-  * **Camera:** A 3D camera system was implemented. The "View" matrix represents the camera. In 3D, this is a complex system involving a position, a target, and an "up" vector, which we manage with `mat4.lookAt`.
-  * **Lighting:** In 2D, color is often flat. In 3D, we implemented a basic phong-style lighting model in the fragment shader (`Shaders.js`). This requires vertex normals (`a_Normal`) and a light position (`u_LightPosition`) to calculate diffuse light.
-  * **Models:** We are no longer drawing simple 2D shapes (triangles/squares) but loading complex 3D meshes from `.ply` files.
-
-**3. How were the translate, scale and rotate matrices arranged? Can your implementation allow rotations and scaling during the movement?**
-
-  * **Arrangement:** The transformations are applied in the `StarSystem.js` `_update` loop. The final Model matrix (`M`) is created by combining separate matrices for Translation, Rotation, and Scale. The order of multiplication is:
-    `M = Translation * Rotation * Scale`
-    This ensures that the object is scaled in its local space, then rotated around its own center, and finally moved to its correct position in the orbit.
-  * **Allow during movement?**
-      * **Rotation:** *Yes.* The architecture allows it. Planets *could* be rotated while moving (as they were in a previous version), but this was *disabled* to meet the assignment requirement that "only axis-rotation or revolution can happen at a time."
-      * **Scaling:** *No.* The implementation *explicitly* prevents this. The code checks `if (!this.isRevolving)` before applying the `tempScale`. This fulfills the requirement that the planet "resume its original size when it starts moving."
-
-**4. How did you ensure that there are no conflicts when adding/deleting a planet along with its orbit?**
-
-  * **Adding:** Conflicts are avoided by finding the largest existing orbital radii. In `StarSystem.js`, the `addModel` function iterates over all planets to find the `maxA` and `maxB` (x and z radii). It then creates the new planet's orbit by adding a random offset to these maximums, ensuring the new orbit is always larger than all existing ones and cannot overlap.
-  * **Deleting:** This is managed safely. When `deleteSelected` is called, the program finds the `planetProp` object. It then explicitly calls `this.orbitRenderer.removeOrbit(planetProp.orbitMesh)` to delete the WebGL buffer for the orbit line, and finally filters the planet from the `this.planets` array. This ensures both the 3D model and its orbit line are removed, and the selection is cleared. A check also prevents deletion if there are 3 or fewer planets.
