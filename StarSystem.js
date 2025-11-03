@@ -4,42 +4,45 @@ export class StarSystem {
     /**
      * @param {WebGLRenderingContext} gl
      * @param {object} programInfo
-     * @param {object} models - An object with all your loaded models, e.g., { sphere, cone, ... }
+     * @param {object} models
+     * @param {OrbitRenderer} orbitRenderer - the orbit renderer
      */
-    constructor(gl, programInfo, models) {
+    constructor(gl, programInfo, models, orbitRenderer) {
         this.gl = gl;
         if (!mat4) {
             console.error("gl-matrix not loaded!");
         }
         this.programInfo = programInfo;
         this.models = models;
+        this.orbitRenderer = orbitRenderer;
 
         // Arrays to hold our scene objects
         this.planets = [];
-        this.axes = [];
         this.star = null;
         this.gizmo = null;
-
         this.starRotation = quat.create();
+
+        // --- State for animation ---
+        this.isRevolving = true; // Automatic revolution is ON
+        this.isRotating = true; // Manual rotation mode is ON
 
         this.selectedObject = null;
         this.highlightColor = [1.0, 1.0, 1.0, 1.0]; // White
-        this.originalColor = {}; // Store original color
 
         // Camera matrices
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
 
-        // Camera mode
+        // Camera state
         this.cameraMode = '3D';
         this.cameraOrientation = quat.create();
         quat.rotateX(this.cameraOrientation, this.cameraOrientation, -Math.PI / 4);
-        this.cameraRadius = 25;  // Distance from the origin
-        this.minCameraRadius = 5.0;  // Don't let user zoom inside the star
-        this.maxCameraRadius = 100.0; // Don't let user zoom out too far
-        this.zoomSensitivity = 0.1;  // Adjusts zoom speed
+        this.cameraRadius = 25;
+        this.minCameraRadius = 5.0;
+        this.maxCameraRadius = 100.0;
+        this.zoomSensitivity = 0.1;
 
-        // Timekeeping for animation
+        // Timekeeping
         this.lastTime = 0;
 
         this._setupScene();
@@ -62,21 +65,38 @@ export class StarSystem {
     /**
      * Adds a new model to the scene.
      * @param {object} model Object model to add
-     * @param {object} color Color that should be applied
-     * @param {Number} orbit Radius of orbit
-     * @param {Number} orbitSpeed Speed of revolution
-     * @param {Number} rotationSpeed Speed of rotation
+     * @param {number[]} color Color that should be applied [r, g, b]
      * @param {Boolean} isEmissive Is luminous?
      */
-    addModel(model, color, orbit = 10, orbitSpeed = 1, rotationSpeed = 1, isEmissive = false) {
-        let gameObject = new GameObject(this.gl, this.programInfo, model, color, isEmissive);
+    addModel(model, color, isEmissive = false) {
+        // Find the largest current radii to avoid collision
+        let maxA = 0;
+        let maxB = 0;
+        this.planets.forEach(p => {
+            if (p.orbitA > maxA) maxA = p.orbitA;
+            if (p.orbitB > maxB) maxB = p.orbitB;
+        });
+
+        // Create new, larger, non-overlapping radii
+        const newA = maxA + (Math.random() * 1.5 + 1.5); // Add 1.5 to 3.0
+        const newB = maxB + (Math.random() * 1.5 + 1.5); // Add 1.5 to 3.0
+
+        // Create the orbit mesh
+        const orbitMesh = this.orbitRenderer.addOrbit(newA, newB, color);
+
+        let gameObject = new GameObject(this.gl, this.programInfo, model, [...color, 1.0], isEmissive);
+
         this.planets.push({
             planet: gameObject,
-            orbit: orbit,
-            orbitSpeed: orbitSpeed,
-            rotationSpeed: rotationSpeed,
-            orbitQuat: quat.create(),
+            orbitA: newA, // Store new ellipse radius
+            orbitB: newB, // Store new ellipse radius
+            orbitSpeed: 0.5 + Math.random(),
+            rotationSpeed: 1.0 + Math.random() * 4,
+            orbitAngle: Math.random() * Math.PI * 2, // Start at random angle
             rotationQuat: quat.create(),
+            orbitMesh: orbitMesh, // Store reference to the orbit line
+            baseScale: 1.0,
+            tempScale: 1.0
         });
     }
 
@@ -95,10 +115,6 @@ export class StarSystem {
     setSelected(object) {
         // 1. If there's an old selection, restore its color
         if (this.selectedObject) {
-            // Find the *original* color we stored.
-            // We use a Map to store { object: originalColor }
-            const oldColor = this.originalColor[this.selectedObject.id]; // We need an ID...
-
             // Let's just store the color on the object itself before changing it.
             this.selectedObject.color = this.selectedObject.originalColor;
             delete this.selectedObject.originalColor;
@@ -124,43 +140,51 @@ export class StarSystem {
         const info = this.programInfo;
 
         // --- Create the Star ---
-        this.star = new GameObject(gl, info, this.models.sphere, [1, 1, 0, 1], true); // Emissive = true
-        mat4.scale(this.star.modelMatrix, this.star.modelMatrix, vec3.fromValues(2.0, 2.0, 2.0));
+        this.star = new GameObject(gl, info, this.models.sphere, [1, 1, 0, 1], true);
 
         // --- Create Planets (at least 3) ---
-        const planet1 = new GameObject(gl, info, this.models.icosphere, [0.2, 0.8, 0.2, 1]); // Green
-        mat4.translate(planet1.modelMatrix, planet1.modelMatrix, vec3.fromValues(5, 0, 0));
-        const planet2 = new GameObject(gl, info, this.models.monkey, [0.4, 0.4, 1, 1]); // Blue
-        mat4.translate(planet2.modelMatrix, planet2.modelMatrix, vec3.fromValues(8, 0, 0)); // Orbit radius 8
-        const planet3 = new GameObject(gl, info, this.models.torus, [0.7, 0.3, 0.7, 1]); // Purple
-        mat4.translate(planet3.modelMatrix, planet3.modelMatrix, vec3.fromValues(11, 0, 0)); // Orbit radius 11
+        const planetData = [
+            { model: this.models.icosphere, color: [0.2, 0.8, 0.2], orbitA: 5, orbitB: 4.5, orbitSpeed: 1, rotationSpeed: 3 },
+            { model: this.models.monkey, color: [0.4, 0.4, 1], orbitA: 8, orbitB: 9, orbitSpeed: 1.5, rotationSpeed: 4 },
+            { model: this.models.torus, color: [0.7, 0.3, 0.7], orbitA: 11, orbitB: 10, orbitSpeed: 2, rotationSpeed: 5 }
+        ];
 
-        this.planets.push(
-            {
-                planet: planet1,
-                orbit: 5,
-                orbitSpeed: 1,
-                rotationSpeed: 3,
-                orbitQuat: quat.create(),
+        for (const data of planetData) {
+            const planet = new GameObject(gl, info, data.model, [...data.color, 1.0]);
+            const orbitMesh = this.orbitRenderer.addOrbit(data.orbitA, data.orbitB, data.color);
+
+            this.planets.push({
+                planet: planet,
+                orbitA: data.orbitA,
+                orbitB: data.orbitB,
+                orbitSpeed: data.orbitSpeed,
+                rotationSpeed: data.rotationSpeed,
+                orbitAngle: 0,
                 rotationQuat: quat.create(),
-            },
-            {
-                planet: planet2,
-                orbit: 8,
-                orbitSpeed: 1.5,
-                rotationSpeed: 4,
-                orbitQuat: quat.create(),
-                rotationQuat: quat.create(),
-            },
-            {
-                planet: planet3,
-                orbit: 11,
-                orbitSpeed: 2,
-                rotationSpeed: 5,
-                orbitQuat: quat.create(),
-                rotationQuat: quat.create(),
-            }
-        );
+                orbitMesh: orbitMesh,
+                baseScale: 1.0,
+                tempScale: 1.0
+            });
+        }
+    }
+
+    /**
+     * Modifies the temporary scale of the selected planet.
+     * @param {number} delta - The amount to add to the scale.
+     */
+    modifySelectedScale(delta) {
+        // Only allow scaling when stationary 
+        if (!this.selectedObject || this.isRevolving) {
+            console.warn("Can only scale stationary planets.");
+            return;
+        }
+
+        const planetProp = this.planets.find(p => p.planet === this.selectedObject);
+        if (planetProp) {
+            planetProp.tempScale += delta;
+            // Add a clamp to prevent 0 or negative scale
+            planetProp.tempScale = Math.max(0.1, planetProp.tempScale);
+        }
     }
 
     /**
@@ -208,6 +232,26 @@ export class StarSystem {
     }
 
     /**
+     * Manually rotates the selected planet.
+     * @param {number[]} axis - The axis to rotate around (e.g., [1, 0, 0])
+     * @param {number} angle - The angle in radians
+     */
+    rotateSelected(axis, angle) {
+        if (!this.selectedObject || !this.isRotating) {
+            // Only works in manual rotation mode on a selected object
+            return;
+        }
+
+        const planetProp = this.planets.find(p => p.planet === this.selectedObject);
+        if (planetProp) {
+            const deltaQuat = quat.create();
+            quat.setAxisAngle(deltaQuat, axis, angle);
+            quat.multiply(planetProp.rotationQuat, deltaQuat, planetProp.rotationQuat);
+            quat.normalize(planetProp.rotationQuat, planetProp.rotationQuat);
+        }
+    }
+
+    /**
      * Changes a property of the currently selected planet.
      * @param {string} property - 'orbit', 'orbitSpeed', or 'rotationSpeed'.
      * @param {number} delta - The amount to change by (e.g., 0.1 or -0.1).
@@ -228,15 +272,12 @@ export class StarSystem {
             case 'orbit':
                 planetProp.orbit += delta;
                 if (planetProp.orbit < 0) planetProp.orbit = 0;
-                console.log(`New orbit: ${planetProp.orbit}`);
                 break;
             case 'orbitSpeed':
                 planetProp.orbitSpeed += delta;
-                console.log(`New orbit speed: ${planetProp.orbitSpeed}`);
                 break;
             case 'rotationSpeed':
                 planetProp.rotationSpeed += delta;
-                console.log(`New rotation speed: ${planetProp.rotationSpeed}`);
                 break;
             default:
                 console.warn(`Unknown property: ${property}`);
@@ -252,18 +293,25 @@ export class StarSystem {
             return;
         }
 
-        // Per assignment, don't allow deletion if it brings count < 3 [cite: 63]
         if (this.planets.length <= 3) {
-            console.warn("Cannot delete planet. Minimum 3 planets required.");
+            alert("Cannot delete planet. Minimum 3 planets required.");
             return;
         }
 
-        // Find and remove the planet
-        this.planets = this.planets.filter(p => p.planet !== this.selectedObject);
+        // Find the planetProp
+        const planetProp = this.planets.find(p => p.planet === this.selectedObject);
 
-        // Clear the selection
-        this.selectedObject = null;
-        console.log("Planet deleted.");
+        if (planetProp) {
+            // --- Remove the orbit mesh ---
+            this.orbitRenderer.removeOrbit(planetProp.orbitMesh);
+
+            // Filter out the planet
+            this.planets = this.planets.filter(p => p.planet !== this.selectedObject);
+
+            // Clear selection
+            this.selectedObject = null;
+            console.log("Planet deleted.");
+        }
     }
 
     /**
@@ -309,47 +357,56 @@ export class StarSystem {
      */
     _update(deltaTime) {
         // --- Update Star ---
-        // 1. Create a delta rotation
         const starDelta = quat.create();
         quat.setAxisAngle(starDelta, [0, 1, 0], deltaTime * 0.2);
-        // 2. Multiply with main rotation
         quat.multiply(this.starRotation, starDelta, this.starRotation);
-        // 3. Rebuild model matrix from scratch (Quat -> Matrix)
         mat4.fromQuat(this.star.modelMatrix, this.starRotation);
-        // 4. Apply scaling
         mat4.scale(this.star.modelMatrix, this.star.modelMatrix, [2.0, 2.0, 2.0]);
 
 
         // --- Update Planets ---
         for (const planetProp of this.planets) {
-            // 1. Create delta rotations
-            const orbitDelta = quat.create();
-            const rotationDelta = quat.create();
-            quat.setAxisAngle(orbitDelta, [0, 1, 0], planetProp.orbitSpeed * deltaTime * 0.5);
-            quat.setAxisAngle(rotationDelta, [0, 1, 0], planetProp.rotationSpeed * deltaTime);
 
-            // 2. Update main quaternions
-            quat.multiply(planetProp.orbitQuat, orbitDelta, planetProp.orbitQuat);
-            quat.multiply(planetProp.rotationQuat, rotationDelta, planetProp.rotationQuat);
+            // --- 1. Revolution (Orbit) ---
+            if (this.isRevolving) { // 
+                planetProp.orbitAngle += planetProp.orbitSpeed * deltaTime * 0.5;
+            }
 
-            // 3. Rebuild model matrix from scratch
-            const M = planetProp.planet.modelMatrix;
-            const orbitMatrix = mat4.create();
-            const rotationMatrix = mat4.create();
+            // Calculate position on ellipse
+            const x = planetProp.orbitA * Math.cos(planetProp.orbitAngle);
+            const z = planetProp.orbitB * Math.sin(planetProp.orbitAngle);
             const translationMatrix = mat4.create();
+            mat4.fromTranslation(translationMatrix, [x, 0, z]);
 
-            // Convert quats to matrices
-            mat4.fromQuat(orbitMatrix, planetProp.orbitQuat);
+            // --- 2. Rotation (Spin) ---
+            // Only do automatic spin if NOT in manual rotation mode
+            // OR if this planet is not the selected one
+            if (!this.isRotating || planetProp.planet !== this.selectedObject) {
+                const rotationDelta = quat.create();
+                quat.setAxisAngle(rotationDelta, [0, 1, 0], planetProp.rotationSpeed * deltaTime);
+                quat.multiply(planetProp.rotationQuat, rotationDelta, planetProp.rotationQuat);
+            }
+            // Manual rotation is applied by rotateSelected()
+
+            const rotationMatrix = mat4.create();
             mat4.fromQuat(rotationMatrix, planetProp.rotationQuat);
 
-            // Create translation matrix
-            mat4.fromTranslation(translationMatrix, [planetProp.orbit, 0, 0]);
+            // --- 3. Scaling (MODIFIED) ---
+            const scaleMatrix = mat4.create();
+            let finalScale = planetProp.baseScale;
 
-            // Combine as M = Orbit * Translation * Rotation
-            mat4.identity(M);
-            mat4.multiply(M, M, orbitMatrix);
-            mat4.multiply(M, M, translationMatrix);
-            mat4.multiply(M, M, rotationMatrix);
+            // Only apply tempScale if the planet is stationary 
+            if (!this.isRevolving) {
+                finalScale *= planetProp.tempScale;
+            }
+
+            mat4.fromScaling(scaleMatrix, [finalScale, finalScale, finalScale]);
+
+            // --- 4. Combine ---
+            const M = planetProp.planet.modelMatrix;
+            // M = Translation * Rotation * Scale
+            mat4.multiply(M, translationMatrix, rotationMatrix);
+            mat4.multiply(M, M, scaleMatrix);
         }
     }
 
@@ -371,37 +428,30 @@ export class StarSystem {
         mat4.perspective(this.projectionMatrix, fieldOfView, aspect, zNear, zFar);
 
         if (this.cameraMode === '3D') {
-            // --- Quaternion-based camera logic ---
             const cameraPosition = vec3.fromValues(0, 0, this.cameraRadius);
             const cameraUp = vec3.fromValues(0, 1, 0);
-
-            // 1. Rotate the position vector by the camera's orientation
             vec3.transformQuat(cameraPosition, cameraPosition, this.cameraOrientation);
-
-            // 2. Rotate the "up" vector by the same orientation
             vec3.transformQuat(cameraUp, cameraUp, this.cameraOrientation);
-
-            // 3. Point the camera back at the origin from its new position
-            const lookAtTarget = vec3.fromValues(0, 0, 0);
-            mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
-
-        } else { // Top View
+            mat4.lookAt(this.viewMatrix, cameraPosition, vec3.fromValues(0, 0, 0), cameraUp);
+        } else {
             const cameraPosition = vec3.fromValues(0, this.cameraRadius, 0);
-            const lookAtTarget = vec3.fromValues(0, 0, 0);
-            const cameraUp = vec3.fromValues(0, 0, -1); // Look "down"
-            mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
+            mat4.lookAt(this.viewMatrix, cameraPosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 0, -1));
         }
 
-        // --- Tell WebGL to use our shader program ---
+        // --- Draw the orbits first (so they are "under" the planets) ---
+        if (this.orbitRenderer) {
+            this.orbitRenderer.draw(this.viewMatrix, this.projectionMatrix);
+        }
+
+        // --- Tell WebGL to use our main shader program ---
         gl.useProgram(info.program);
 
-        // --- Set Global Uniforms (same for all objects) ---
+        // --- Set Global Uniforms ---
         gl.uniformMatrix4fv(info.uniformLocations.projectionMatrix, false, this.projectionMatrix);
         gl.uniformMatrix4fv(info.uniformLocations.viewMatrix, false, this.viewMatrix);
 
         // --- Draw all objects ---
         this.star.draw();
-
         for (const planetProp of this.planets) {
             planetProp.planet.draw();
         }

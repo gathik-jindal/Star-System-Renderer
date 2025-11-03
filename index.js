@@ -1,9 +1,11 @@
 import { loadPLY } from './PLYLoader.js';
 import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './Shaders.js';
+import { orbitVertexShaderSource, orbitFragmentShaderSource } from './OrbitShaders.js';
 import { StarSystem } from './StarSystem.js';
 import { createPlanetCard, hexToRgb } from './PlanetSelection.js';
 import { GizmoRenderer } from './gizmoRenderer.js';
 import { ObjectPicker } from './ObjectPicker.js';
+import { OrbitRenderer } from './OrbitRenderer.js';
 
 export const CLEAR_COLOR = [0.1, 0.1, 0.1, 1];
 
@@ -67,7 +69,6 @@ function initGL() {
     return { gl, programInfo };
 }
 
-// --- NEW FUNCTION ---
 /**
  * Initializes the GIZMO WebGL context and program.
  * @returns {object} An object containing gl, the program, and shader locations.
@@ -124,52 +125,76 @@ function initGizmoGL() {
     return { gl, programInfo };
 }
 
+/**
+ * Creates the shader program for the orbit lines.
+ * @param {WebGLRenderingContext} gl
+ * @returns {object} { program, attribLocations, uniformLocations }
+ */
+function initOrbitProgram(gl) {
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, orbitVertexShaderSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, orbitFragmentShaderSource);
+    if (!vertexShader || !fragmentShader) return null;
+
+    const program = createShaderProgram(gl, vertexShader, fragmentShader);
+    if (!program) return null;
+
+    return {
+        program: program,
+        attribLocations: {
+            position: gl.getAttribLocation(program, 'a_Position'),
+        },
+        uniformLocations: {
+            projectionMatrix: gl.getUniformLocation(program, 'u_ProjectionMatrix'),
+            viewMatrix: gl.getUniformLocation(program, 'u_ViewMatrix'),
+            modelMatrix: gl.getUniformLocation(program, 'u_ModelMatrix'),
+            color: gl.getUniformLocation(program, 'u_Color'),
+        },
+    };
+}
+
 
 async function main() {
     console.log('Initializing star system...');
 
-    // --- 1. Initialize BOTH WebGL contexts ---
+    // --- 1. Initialize ALL WebGL contexts/programs ---
     const { gl, programInfo } = initGL();
-    if (!gl) return; // Main init failed
+    if (!gl) return;
 
-    const gizmoGL = initGizmoGL(); // { gl, programInfo }
-    if (!gizmoGL.gl) return; // Gizmo init failed
+    const gizmoGL = initGizmoGL();
+    if (!gizmoGL.gl) return;
+
+    // --- NEW: Create Orbit Program Info ---
+    const orbitProgramInfo = initOrbitProgram(gl);
+    if (!orbitProgramInfo) {
+        console.error("Failed to create orbit shader program.");
+        return;
+    }
 
 
     // --- 2. Load All Models ---
     try {
         const [
-            coneModel,
-            icosphereModel,
-            monkeyModel,
-            sphereModel,
-            torusModel,
-            cylinderModel,
-            cubeModel,
+            coneModel, icosphereModel, monkeyModel, sphereModel,
+            torusModel, cylinderModel, cubeModel,
         ] = await Promise.all([
-            loadPLY('./Objects/cone.ply'),
-            loadPLY('./Objects/icosphere.ply'),
-            loadPLY('./Objects/monkey.ply'),
-            loadPLY('./Objects/sphere.ply'),
-            loadPLY('./Objects/torus.ply'),
-            loadPLY('./Objects/cylinder.ply'),
+            loadPLY('./Objects/cone.ply'), loadPLY('./Objects/icosphere.ply'),
+            loadPLY('./Objects/monkey.ply'), loadPLY('./Objects/sphere.ply'),
+            loadPLY('./Objects/torus.ply'), loadPLY('./Objects/cylinder.ply'),
             loadPLY('./Objects/cube.ply'),
         ]);
-
-        console.log('All models loaded successfully!');
-
         const models = {
-            cone: coneModel,
-            icosphere: icosphereModel,
-            monkey: monkeyModel,
-            sphere: sphereModel,
-            torus: torusModel,
-            cylinder: cylinderModel,
-            cube: cubeModel,
+            cone: coneModel, icosphere: icosphereModel, monkey: monkeyModel,
+            sphere: sphereModel, torus: torusModel, cylinder: cylinderModel, cube: cubeModel,
         };
 
         // --- 3. Build Scene & Renderers ---
-        const starSystem = new StarSystem(gl, programInfo, models);
+
+        // --- Instantiate OrbitRenderer ---
+        const orbitRenderer = new OrbitRenderer(gl, orbitProgramInfo);
+
+        // --- Pass orbitRenderer to StarSystem ---
+        const starSystem = new StarSystem(gl, programInfo, models, orbitRenderer);
+
         const gizmoRenderer = new GizmoRenderer(gizmoGL.gl, gizmoGL.programInfo, models);
         const objectPicker = new ObjectPicker(gl);
 
@@ -250,56 +275,72 @@ async function main() {
         });
 
         document.addEventListener('keydown', (event) => {
-            // Don't do anything if a text box is focused, etc.
-            if (event.target.tagName !== 'BODY') {
-                return;
-            }
+            if (event.target.tagName !== 'BODY') return;
 
-            // First, check if an object is selected.
-            // These keys do nothing if no object is selected.
+            // Manual rotation speed
+            const rotationAngle = 0.05; // ~3 degrees
+
+            // Keys for selected object
             if (starSystem.selectedObject) {
-                // Use event.key to check which key was pressed
                 switch (event.key) {
                     // --- Orbit Size ---
-                    case '=': // '+' key
-                        starSystem.modifySelected('orbit', 0.5);
-                        event.preventDefault(); // Stop browser zoom
+                    case '=':
+                        starSystem.modifySelected('orbit', 0.5); // This needs to be 'orbitA' or 'orbitB' now
+                        event.preventDefault();
                         break;
                     case '-':
-                        starSystem.modifySelected('orbit', -0.5);
-                        event.preventDefault(); // Stop browser zoom
+                        starSystem.modifySelected('orbit', -0.5); // Let's leave this for now, though it's less useful.
+                        event.preventDefault();
                         break;
 
-                    // --- Revolution Speed (Orbit Speed) ---
-                    case ']':
-                        starSystem.modifySelected('orbitSpeed', 0.1);
-                        break;
-                    case '[':
-                        starSystem.modifySelected('orbitSpeed', -0.1);
-                        break;
+                    // --- Revolution Speed ---
+                    case ']': starSystem.modifySelected('orbitSpeed', 0.3); break;
+                    case '[': starSystem.modifySelected('orbitSpeed', -0.3); break;
 
-                    // --- Rotation Speed (Spin) ---
-                    case '.':
-                        starSystem.modifySelected('rotationSpeed', 0.2);
-                        break;
-                    case ',':
-                        starSystem.modifySelected('rotationSpeed', -0.2);
-                        break;
+                    // --- Rotation Speed (for auto-spin) ---
+                    case '.': starSystem.modifySelected('rotationSpeed', 0.4); break;
+                    case ',': starSystem.modifySelected('rotationSpeed', -0.4); break;
 
                     // --- Deletion ---
                     case 'Delete':
                     case 'Backspace':
-                        starSystem.deleteSelected();
+                        starSystem.deleteSelected(); break;
+
+                    // --- Manual Rotation ---
+                    // Only works if in manual rotation mode
+                    case 'x': starSystem.rotateSelected([1, 0, 0], rotationAngle); break;
+                    case 'X': starSystem.rotateSelected([1, 0, 0], -rotationAngle); break;
+                    case 'y': starSystem.rotateSelected([0, 1, 0], rotationAngle); break;
+                    case 'Y': starSystem.rotateSelected([0, 1, 0], -rotationAngle); break;
+                    case 'z': starSystem.rotateSelected([0, 0, 1], rotationAngle); break;
+                    case 'Z': starSystem.rotateSelected([0, 0, 1], -rotationAngle); break;
+
+                    // --- Scale ---
+                    case 'PageUp':
+                        starSystem.modifySelectedScale(0.1);
+                        event.preventDefault(); // Prevent scrolling
+                        break;
+                    case 'PageDown':
+                        starSystem.modifySelectedScale(-0.1);
+                        event.preventDefault(); // Prevent scrolling
                         break;
                 }
             }
 
             // --- Global keys (that work even without selection) ---
-            // (You can add keys here for add/delete, or pausing all)
             switch (event.key) {
-                case 'p':
-                    // Example: You could add a "pauseAll" function
-                    console.log("Pause Toggled (Not Implemented)");
+                case ' ': // Use Spacebar to toggle revolution
+                    starSystem.isRevolving = !starSystem.isRevolving;
+                    console.log(`Revolution ${starSystem.isRevolving ? 'ON' : 'OFF'}.`);
+                    event.preventDefault();
+                    break;
+
+                case 't': // Use 't' to toggle manual rotation mode
+                    starSystem.isRotating = !starSystem.isRotating;
+                    console.log(`Manual Rotation Mode ${starSystem.isRotating ? 'ON' : 'OFF'}.`);
+                    if (starSystem.isRotating) {
+                        console.log("Use x/X, y/Y, z/Z to rotate selected planet.");
+                    }
                     break;
             }
         });
@@ -312,7 +353,7 @@ async function main() {
             { name: "Torus", model: models.torus, color: 0xaa00ff },
             { name: "Cone", model: models.cone, color: 0xff0000 },
             { name: "Cylinder", model: models.cylinder, color: 0xffff00 },
-            { name: "Cube", model: models.cube, color: 0xffffff },
+            { name: "Cube", model: models.cube, color: 0x0fffff },
         ];
         for (const cardData of modelCards) {
             const onCardClick = () => {
@@ -320,10 +361,7 @@ async function main() {
                 const color = hexToRgb(cardData.color);
                 starSystem.addModel(
                     cardData.model,
-                    [...color, 1.0],
-                    9 + (Math.random() * 10),
-                    0.5 + Math.random(),
-                    1.0 + Math.random() * 4,
+                    color, // Just pass [r, g, b]
                     false
                 );
             };
