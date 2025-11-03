@@ -249,6 +249,61 @@ async function main() {
             }
         });
 
+        document.addEventListener('keydown', (event) => {
+            // Don't do anything if a text box is focused, etc.
+            if (event.target.tagName !== 'BODY') {
+                return;
+            }
+
+            // First, check if an object is selected.
+            // These keys do nothing if no object is selected.
+            if (starSystem.selectedObject) {
+                // Use event.key to check which key was pressed
+                switch (event.key) {
+                    // --- Orbit Size ---
+                    case '=': // '+' key
+                        starSystem.modifySelected('orbit', 0.5);
+                        event.preventDefault(); // Stop browser zoom
+                        break;
+                    case '-':
+                        starSystem.modifySelected('orbit', -0.5);
+                        event.preventDefault(); // Stop browser zoom
+                        break;
+
+                    // --- Revolution Speed (Orbit Speed) ---
+                    case ']':
+                        starSystem.modifySelected('orbitSpeed', 0.1);
+                        break;
+                    case '[':
+                        starSystem.modifySelected('orbitSpeed', -0.1);
+                        break;
+
+                    // --- Rotation Speed (Spin) ---
+                    case '.':
+                        starSystem.modifySelected('rotationSpeed', 0.2);
+                        break;
+                    case ',':
+                        starSystem.modifySelected('rotationSpeed', -0.2);
+                        break;
+
+                    // --- Deletion ---
+                    case 'Delete':
+                    case 'Backspace':
+                        starSystem.deleteSelected();
+                        break;
+                }
+            }
+
+            // --- Global keys (that work even without selection) ---
+            // (You can add keys here for add/delete, or pausing all)
+            switch (event.key) {
+                case 'p':
+                    // Example: You could add a "pauseAll" function
+                    console.log("Pause Toggled (Not Implemented)");
+                    break;
+            }
+        });
+
         // --- 5. CREATE MODEL CARDS ---
         const modelCards = [
             { name: "Sphere", model: models.sphere, color: 0x00ff00 },

@@ -208,6 +208,65 @@ export class StarSystem {
     }
 
     /**
+     * Changes a property of the currently selected planet.
+     * @param {string} property - 'orbit', 'orbitSpeed', or 'rotationSpeed'.
+     * @param {number} delta - The amount to change by (e.g., 0.1 or -0.1).
+     */
+    modifySelected(property, delta) {
+        if (!this.selectedObject) {
+            console.warn("No object selected.");
+            return;
+        }
+
+        // Find the planetProp object that "owns" this.selectedObject
+        const planetProp = this.planets.find(p => p.planet === this.selectedObject);
+        if (!planetProp) {
+            return;
+        }
+
+        switch (property) {
+            case 'orbit':
+                planetProp.orbit += delta;
+                if (planetProp.orbit < 0) planetProp.orbit = 0;
+                console.log(`New orbit: ${planetProp.orbit}`);
+                break;
+            case 'orbitSpeed':
+                planetProp.orbitSpeed += delta;
+                console.log(`New orbit speed: ${planetProp.orbitSpeed}`);
+                break;
+            case 'rotationSpeed':
+                planetProp.rotationSpeed += delta;
+                console.log(`New rotation speed: ${planetProp.rotationSpeed}`);
+                break;
+            default:
+                console.warn(`Unknown property: ${property}`);
+        }
+    }
+
+    /**
+     * Deletes the currently selected planet.
+     */
+    deleteSelected() {
+        if (!this.selectedObject) {
+            console.warn("No object selected.");
+            return;
+        }
+
+        // Per assignment, don't allow deletion if it brings count < 3 [cite: 63]
+        if (this.planets.length <= 3) {
+            console.warn("Cannot delete planet. Minimum 3 planets required.");
+            return;
+        }
+
+        // Find and remove the planet
+        this.planets = this.planets.filter(p => p.planet !== this.selectedObject);
+
+        // Clear the selection
+        this.selectedObject = null;
+        console.log("Planet deleted.");
+    }
+
+    /**
      * Starts the continuous render loop.
      * @param {GizmoRenderer | null} gizmoRenderer - The gizmo renderer to update.
      */
