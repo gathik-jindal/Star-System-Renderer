@@ -1,7 +1,8 @@
-import { vertexShaderSource, fragmentShaderSource, compileShader, createShaderProgram } from './Shaders.js';
+import { vertexShaderSource, fragmentShaderSource } from './Shaders.js';
+import { compileShader, createShaderProgram } from './ShaderUtil.js';
 import { GameObject } from './GameObject.js';
 
-const { mat4 } = window; // Make sure gl-matrix is loaded
+const { mat4, quat } = window;
 
 /**
  * Initializes a new WebGL context for a planet card canvas.
@@ -15,27 +16,20 @@ function initCardGL(canvas) {
         return null;
     }
 
-    // Match display size
     if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
         canvas.width = canvas.clientWidth;
         canvas.height = canvas.clientHeight;
     }
 
+    // --- Manually compile and link ---
     const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-    if (!vertexShader || !fragmentShader) return null;
-
     const program = createShaderProgram(gl, vertexShader, fragmentShader);
     if (!program) return null;
 
-    gl.useProgram(program);
+    gl.useProgram(program); // Use program *before* setting uniforms
 
-    // --- Global WebGL Settings for this context ---
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    gl.enable(gl.DEPTH_TEST);
-    gl.clearColor(0.0, 0.0, 0.0, 1.0); // Black background for cards
-
-    // --- Get shader locations ---
+    // --- Manually find locations ---
     const programInfo = {
         program: program,
         attribLocations: {
@@ -53,8 +47,12 @@ function initCardGL(canvas) {
     };
 
     // --- Set static uniforms for this card's scene ---
-    // Light from "behind the camera"
     gl.uniform3fv(programInfo.uniformLocations.lightPosition, [0.0, 2.0, 5.0]);
+
+    // --- Set global GL settings for this context ---
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.enable(gl.DEPTH_TEST);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0); // Black background for cards
 
     return { gl, programInfo };
 }

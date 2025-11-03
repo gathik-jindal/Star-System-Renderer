@@ -1,3 +1,5 @@
+const { mat4 } = window;
+
 /**
  * Manages rendering the elliptical orbit paths.
  */

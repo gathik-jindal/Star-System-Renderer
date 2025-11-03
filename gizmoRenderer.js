@@ -1,5 +1,7 @@
 import { GameObject } from './GameObject.js';
 
+const { mat4 } = window;
+
 /**
  * Manages the rendering of the 3D axis gizmo in a separate canvas.
  */

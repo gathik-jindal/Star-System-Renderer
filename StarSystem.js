@@ -1,5 +1,7 @@
 import { GameObject } from './GameObject.js';
 
+const { mat4, vec3, quat } = window;
+
 export class StarSystem {
     /**
      * @param {WebGLRenderingContext} gl

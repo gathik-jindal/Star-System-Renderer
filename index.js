@@ -1,13 +1,15 @@
 import { loadPLY } from './PLYLoader.js';
 import { vertexShaderSource, fragmentShaderSource } from './Shaders.js';
 import { orbitVertexShaderSource, orbitFragmentShaderSource } from './OrbitShaders.js';
-import { createProgramInfo } from './ShaderUtil.js'; // New
-import { setupInputHandlers } from './InputHandler.js'; // New
+import { compileShader, createShaderProgram } from './ShaderUtil.js';
+import { setupInputHandlers } from './InputHandler.js';
 import { StarSystem } from './StarSystem.js';
 import { createPlanetCard, hexToRgb } from './PlanetSelection.js';
 import { GizmoRenderer } from './gizmoRenderer.js';
 import { ObjectPicker } from './ObjectPicker.js';
 import { OrbitRenderer } from './OrbitRenderer.js';
+
+const { mat4 } = window;
 
 export const CLEAR_COLOR = [0.1, 0.1, 0.1, 1];
 
@@ -16,7 +18,7 @@ export const CLEAR_COLOR = [0.1, 0.1, 0.1, 1];
  * @returns {object} An object containing gl, the program, and shader locations.
  */
 function initGL() {
-    mat4.create(); // Ensure mat4 is loaded
+    mat4.create();
     const canvas = document.getElementById('star-system-canvas');
     const gl = canvas.getContext('webgl');
     if (!gl) {
@@ -31,8 +33,28 @@ function initGL() {
         canvas.height = displayHeight;
     }
 
-    const programInfo = createProgramInfo(gl, vertexShaderSource, fragmentShaderSource);
-    if (!programInfo) return null;
+    // --- Manually compile and link ---
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    const program = createShaderProgram(gl, vertexShader, fragmentShader);
+    if (!program) return null;
+
+    // --- Manually find locations (the way GameObject.js expects) ---
+    const programInfo = {
+        program: program,
+        attribLocations: {
+            position: gl.getAttribLocation(program, 'a_Position'),
+            normal: gl.getAttribLocation(program, 'a_Normal'),
+        },
+        uniformLocations: {
+            projectionMatrix: gl.getUniformLocation(program, 'u_ProjectionMatrix'),
+            viewMatrix: gl.getUniformLocation(program, 'u_ViewMatrix'),
+            modelMatrix: gl.getUniformLocation(program, 'u_ModelMatrix'),
+            color: gl.getUniformLocation(program, 'u_Color'),
+            lightPosition: gl.getUniformLocation(program, 'u_LightPosition'),
+            isEmissive: gl.getUniformLocation(program, 'u_isEmissive'),
+        },
+    };
 
     gl.useProgram(programInfo.program);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
@@ -40,7 +62,7 @@ function initGL() {
     gl.clearColor(...CLEAR_COLOR);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    gl.uniform3fv(programInfo.uniformLocations.u_LightPosition, [0.0, 0.0, 0.0]);
+    gl.uniform3fv(programInfo.uniformLocations.lightPosition, [0.0, 0.0, 0.0]);
     console.log('Main WebGL and shaders initialized successfully!');
     return { gl, programInfo };
 }
@@ -62,12 +84,32 @@ function initGizmoGL() {
         canvas.height = canvas.clientHeight;
     }
 
-    const programInfo = createProgramInfo(gl, vertexShaderSource, fragmentShaderSource);
-    if (!programInfo) return null;
+    // --- Manually compile and link ---
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    const program = createShaderProgram(gl, vertexShader, fragmentShader);
+    if (!program) return null;
+
+    // --- Manually find locations ---
+    const programInfo = {
+        program: program,
+        attribLocations: {
+            position: gl.getAttribLocation(program, 'a_Position'),
+            normal: gl.getAttribLocation(program, 'a_Normal'),
+        },
+        uniformLocations: {
+            projectionMatrix: gl.getUniformLocation(program, 'u_ProjectionMatrix'),
+            viewMatrix: gl.getUniformLocation(program, 'u_ViewMatrix'),
+            modelMatrix: gl.getUniformLocation(program, 'u_ModelMatrix'),
+            color: gl.getUniformLocation(program, 'u_Color'),
+            lightPosition: gl.getUniformLocation(program, 'u_LightPosition'),
+            isEmissive: gl.getUniformLocation(program, 'u_isEmissive'),
+        },
+    };
 
     gl.useProgram(programInfo.program);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    gl.uniform3fv(programInfo.uniformLocations.u_LightPosition, [0.0, 0.0, 0.0]);
+    gl.uniform3fv(programInfo.uniformLocations.lightPosition, [0.0, 0.0, 0.0]);
     console.log('Gizmo WebGL initialized successfully!');
     return { gl, programInfo };
 }
@@ -78,9 +120,25 @@ function initGizmoGL() {
  * @returns {object} { program, attribLocations, uniformLocations }
  */
 function initOrbitProgram(gl) {
-    const programInfo = createProgramInfo(gl, orbitVertexShaderSource, orbitFragmentShaderSource);
-    if (!programInfo) return null;
-    return programInfo; // Return the info object directly
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, orbitVertexShaderSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, orbitFragmentShaderSource);
+    const program = createShaderProgram(gl, vertexShader, fragmentShader);
+    if (!program) return null;
+
+    // --- Manually find locations for orbit shader ---
+    const programInfo = {
+        program: program,
+        attribLocations: {
+            position: gl.getAttribLocation(program, 'a_Position'),
+        },
+        uniformLocations: {
+            projectionMatrix: gl.getUniformLocation(program, 'u_ProjectionMatrix'),
+            viewMatrix: gl.getUniformLocation(program, 'u_ViewMatrix'),
+            modelMatrix: gl.getUniformLocation(program, 'u_ModelMatrix'),
+            color: gl.getUniformLocation(program, 'u_Color'),
+        },
+    };
+    return programInfo;
 }
 
 
@@ -88,11 +146,12 @@ async function main() {
     console.log('Initializing star system...');
 
     // --- 1. Initialize ALL WebGL contexts/programs ---
-    const { gl, programInfo } = initGL();
-    if (!gl) return;
+    const glInit = initGL();
+    if (!glInit) return;
+    const { gl, programInfo } = glInit;
 
     const gizmoGL = initGizmoGL();
-    if (!gizmoGL.gl) return;
+    if (!gizmoGL || !gizmoGL.programInfo) return;
 
     const orbitProgramInfo = initOrbitProgram(gl);
     if (!orbitProgramInfo) {

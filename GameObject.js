@@ -1,3 +1,5 @@
+const { mat4 } = window;
+
 export class GameObject {
     /**
      * Creates a new renderable object.
