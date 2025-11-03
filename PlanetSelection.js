@@ -76,7 +76,7 @@ export function hexToRgb(hex) { // <-- NOW EXPORTED
  * @param {object} cardData - { name: "Model Name", model: <model_data>, color: 0xHEX... }
  * @param {function} onClickCallback - A function to execute when the card is clicked.
  */
-export function createPlanetCard(cardData, onClickCallback) { // <-- PARAMETERS CHANGED
+export function createPlanetCard(cardData, onClickCallback) {
     const container = document.getElementById('planet-selections');
 
     // 1. Create HTML Elements
@@ -95,8 +95,6 @@ export function createPlanetCard(cardData, onClickCallback) { // <-- PARAMETERS 
     card.appendChild(preview);
 
     container.appendChild(card);
-
-    // --- NEW: Add the click listener ---
     card.addEventListener('click', onClickCallback);
 
     // 2. Initialize WebGL for this card
@@ -107,17 +105,12 @@ export function createPlanetCard(cardData, onClickCallback) { // <-- PARAMETERS 
 
     // 3. Create the Planet GameObject
     const color = hexToRgb(cardData.color); // Use new cardData
-    // Use the model from cardData, not a hard-coded one
     const planetMesh = new GameObject(gl, programInfo, cardData.model, [...color, 1.0], false);
 
-    // Scale it to fit the card preview
-    // Note: You might want to adjust scaling based on the model
-    if (cardData.name === "Monkey") {
-        mat4.scale(planetMesh.modelMatrix, planetMesh.modelMatrix, [1.2, 1.2, 1.2]);
-    } else {
-        mat4.scale(planetMesh.modelMatrix, planetMesh.modelMatrix, [1.5, 1.5, 1.5]);
-    }
-
+    // --- Store rotation and scale separately ---
+    const planetRotation = quat.create();
+    const scaleVector = (cardData.name === "Monkey") ? [1.2, 1.2, 1.2] : [1.5, 1.5, 1.5];
+    // We no longer apply scale here.
 
     // 4. Setup Camera
     const projectionMatrix = mat4.create();
@@ -140,8 +133,15 @@ export function createPlanetCard(cardData, onClickCallback) { // <-- PARAMETERS 
             gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         }
 
-        // --- Update (Spin) ---
-        mat4.rotateY(planetMesh.modelMatrix, planetMesh.modelMatrix, deltaTime * 1);
+        // --- (Spin) using Quaternions ---
+        const rotationDelta = quat.create();
+        quat.setAxisAngle(rotationDelta, [0, 1, 0], deltaTime * 1);
+        quat.multiply(planetRotation, rotationDelta, planetRotation);
+
+        // Rebuild the model matrix from scratch
+        mat4.fromQuat(planetMesh.modelMatrix, planetRotation);
+        mat4.scale(planetMesh.modelMatrix, planetMesh.modelMatrix, scaleVector);
+
 
         // --- Draw ---
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

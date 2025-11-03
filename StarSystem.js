@@ -20,6 +20,8 @@ export class StarSystem {
         this.star = null;
         this.gizmo = null;
 
+        this.starRotation = quat.create();
+
         this.selectedObject = null;
         this.highlightColor = [1.0, 1.0, 1.0, 1.0]; // White
         this.originalColor = {}; // Store original color
@@ -30,8 +32,8 @@ export class StarSystem {
 
         // Camera mode
         this.cameraMode = '3D';
-        this.cameraYaw = Math.PI / 4; // Initial side-to-side angle
-        this.cameraPitch = 1.0;  // Initial up-and-down angle
+        this.cameraOrientation = quat.create();
+        quat.rotateX(this.cameraOrientation, this.cameraOrientation, -Math.PI / 4);
         this.cameraRadius = 25;  // Distance from the origin
         this.minCameraRadius = 5.0;  // Don't let user zoom inside the star
         this.maxCameraRadius = 100.0; // Don't let user zoom out too far
@@ -73,8 +75,8 @@ export class StarSystem {
             orbit: orbit,
             orbitSpeed: orbitSpeed,
             rotationSpeed: rotationSpeed,
-            totalOrbitAngle: 0,
-            totalRotationAngle: 0
+            orbitQuat: quat.create(),
+            rotationQuat: quat.create(),
         });
     }
 
@@ -139,24 +141,24 @@ export class StarSystem {
                 orbit: 5,
                 orbitSpeed: 1,
                 rotationSpeed: 3,
-                totalOrbitAngle: 0,
-                totalRotationAngle: 0
+                orbitQuat: quat.create(),
+                rotationQuat: quat.create(),
             },
             {
                 planet: planet2,
                 orbit: 8,
                 orbitSpeed: 1.5,
                 rotationSpeed: 4,
-                totalOrbitAngle: 0,
-                totalRotationAngle: 0
+                orbitQuat: quat.create(),
+                rotationQuat: quat.create(),
             },
             {
                 planet: planet3,
                 orbit: 11,
                 orbitSpeed: 2,
                 rotationSpeed: 5,
-                totalOrbitAngle: 0,
-                totalRotationAngle: 0
+                orbitQuat: quat.create(),
+                rotationQuat: quat.create(),
             }
         );
     }
@@ -170,12 +172,26 @@ export class StarSystem {
         if (this.cameraMode !== '3D') {
             return;
         }
-        const sensitivity = 0.01;
-        this.cameraYaw -= deltaX * sensitivity;
-        this.cameraPitch -= deltaY * sensitivity;
-        const minPitch = 0.0002;
-        const maxPitch = Math.PI / 2;
-        this.cameraPitch = Math.max(minPitch, Math.min(maxPitch, this.cameraPitch));
+
+        const sensitivity = 0.005;
+
+        // Create rotations based on mouse movement
+        const rotX = quat.create();
+        const rotY = quat.create();
+
+        // Rotation around the WORLD Y-axis (for left/right movement)
+        quat.setAxisAngle(rotY, [0, 1, 0], -deltaX * sensitivity);
+
+        // Rotation around the CAMERA's local X-axis (for up/down movement)
+        quat.setAxisAngle(rotX, [1, 0, 0], -deltaY * sensitivity);
+
+        // Combine the rotations: new_orientation = world_Y * old_orientation * local_X
+        // This gives a nice "orbit" feel
+        quat.multiply(this.cameraOrientation, rotY, this.cameraOrientation);
+        quat.multiply(this.cameraOrientation, this.cameraOrientation, rotX);
+
+        // Keep the quaternion normalized
+        quat.normalize(this.cameraOrientation, this.cameraOrientation);
     }
 
     /**
@@ -233,16 +249,48 @@ export class StarSystem {
      * @param {number} deltaTime - Time since the last frame.
      */
     _update(deltaTime) {
-        mat4.rotateY(this.star.modelMatrix, this.star.modelMatrix, deltaTime * 0.2);
+        // --- Update Star ---
+        // 1. Create a delta rotation
+        const starDelta = quat.create();
+        quat.setAxisAngle(starDelta, [0, 1, 0], deltaTime * 0.2);
+        // 2. Multiply with main rotation
+        quat.multiply(this.starRotation, starDelta, this.starRotation);
+        // 3. Rebuild model matrix from scratch (Quat -> Matrix)
+        mat4.fromQuat(this.star.modelMatrix, this.starRotation);
+        // 4. Apply scaling
+        mat4.scale(this.star.modelMatrix, this.star.modelMatrix, [2.0, 2.0, 2.0]);
 
+
+        // --- Update Planets ---
         for (const planetProp of this.planets) {
-            planetProp.totalOrbitAngle += planetProp.orbitSpeed * deltaTime * 0.5;
-            planetProp.totalRotationAngle += planetProp.rotationSpeed * deltaTime;
+            // 1. Create delta rotations
+            const orbitDelta = quat.create();
+            const rotationDelta = quat.create();
+            quat.setAxisAngle(orbitDelta, [0, 1, 0], planetProp.orbitSpeed * deltaTime * 0.5);
+            quat.setAxisAngle(rotationDelta, [0, 1, 0], planetProp.rotationSpeed * deltaTime);
+
+            // 2. Update main quaternions
+            quat.multiply(planetProp.orbitQuat, orbitDelta, planetProp.orbitQuat);
+            quat.multiply(planetProp.rotationQuat, rotationDelta, planetProp.rotationQuat);
+
+            // 3. Rebuild model matrix from scratch
             const M = planetProp.planet.modelMatrix;
+            const orbitMatrix = mat4.create();
+            const rotationMatrix = mat4.create();
+            const translationMatrix = mat4.create();
+
+            // Convert quats to matrices
+            mat4.fromQuat(orbitMatrix, planetProp.orbitQuat);
+            mat4.fromQuat(rotationMatrix, planetProp.rotationQuat);
+
+            // Create translation matrix
+            mat4.fromTranslation(translationMatrix, [planetProp.orbit, 0, 0]);
+
+            // Combine as M = Orbit * Translation * Rotation
             mat4.identity(M);
-            mat4.rotateY(M, M, planetProp.totalOrbitAngle);
-            mat4.translate(M, M, [planetProp.orbit, 0, 0]);
-            mat4.rotateY(M, M, planetProp.totalRotationAngle);
+            mat4.multiply(M, M, orbitMatrix);
+            mat4.multiply(M, M, translationMatrix);
+            mat4.multiply(M, M, rotationMatrix);
         }
     }
 
@@ -264,17 +312,24 @@ export class StarSystem {
         mat4.perspective(this.projectionMatrix, fieldOfView, aspect, zNear, zFar);
 
         if (this.cameraMode === '3D') {
-            const x = this.cameraRadius * Math.sin(this.cameraPitch) * Math.sin(this.cameraYaw);
-            const y = this.cameraRadius * Math.cos(this.cameraPitch);
-            const z = this.cameraRadius * Math.sin(this.cameraPitch) * Math.cos(this.cameraYaw);
-            const cameraPosition = vec3.fromValues(x, y, z);
-            const lookAtTarget = vec3.fromValues(0, 0, 0);
+            // --- Quaternion-based camera logic ---
+            const cameraPosition = vec3.fromValues(0, 0, this.cameraRadius);
             const cameraUp = vec3.fromValues(0, 1, 0);
+
+            // 1. Rotate the position vector by the camera's orientation
+            vec3.transformQuat(cameraPosition, cameraPosition, this.cameraOrientation);
+
+            // 2. Rotate the "up" vector by the same orientation
+            vec3.transformQuat(cameraUp, cameraUp, this.cameraOrientation);
+
+            // 3. Point the camera back at the origin from its new position
+            const lookAtTarget = vec3.fromValues(0, 0, 0);
             mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
-        } else {
+
+        } else { // Top View
             const cameraPosition = vec3.fromValues(0, this.cameraRadius, 0);
             const lookAtTarget = vec3.fromValues(0, 0, 0);
-            const cameraUp = vec3.fromValues(0, 0, -1);
+            const cameraUp = vec3.fromValues(0, 0, -1); // Look "down"
             mat4.lookAt(this.viewMatrix, cameraPosition, lookAtTarget, cameraUp);
         }
 
