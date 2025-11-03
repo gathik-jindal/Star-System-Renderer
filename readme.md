@@ -11,6 +11,11 @@ This project is a 3D interactive star system generator built with raw WebGL and 
   * **Orbit Paths:** The elliptical path for each planet is rendered as a colored line.
   * **Model Loading:** Loads all 3D models (`.ply` format) on startup.
 
+## ScreenShots
+
+![](readme-assets/home.png)
+![](readme-assets/top.png)
+
 ### Camera & View
 
   * **Dual-Mode Camera:** Toggle between a "Top View" (orthographic) and a "3D View" (perspective) with one key.
